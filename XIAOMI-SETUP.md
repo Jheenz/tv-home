@@ -430,3 +430,58 @@ and blur uses one horizontal/vertical radius-2 pass at quarter resolution. The
 Control Center dimming is lighter as well. The compact sizing and white focus
 highlight are retained. Previous APK and screenshots are saved in
 `backup/xiaomi-clear-glass-20261105/`.
+
+## Liquid-glass refraction trial — November 5, 2026
+
+Added a cached local-background lens to the dock and Control Center containers.
+The lens samples the existing wallpaper/Home backdrop with mild central
+magnification and curved displacement near each rounded perimeter, rather than
+adding a fixed reflection image. A low-opacity inner highlight and directional
+rim gradient suggest reflected light while retaining the transparent center tint.
+Lens patches are regenerated when their backdrop, position or dimensions change;
+there is no continuous refraction animation. Focused controls remain white with
+dark icons/text. The previous clear-glass APK and dark/light screenshots are in
+`backup/xiaomi-liquid-glass-20261105/`.
+
+## Dock body and Settings backdrop fix — November 5, 2026
+
+The dock's lens now samples the undimmed wallpaper instead of the dark bottom
+readability scrim. Its backdrop opacity is 180/255, with a neutral reflective fill
+and stronger inner sheen, so the container has a visible glass body rather than
+just an outline over a dark gradient. Control Center's existing transparent tint
+and background blur are retained.
+
+Native TV Settings uses a translucent window. Settings shortcuts now start within
+the launcher's task, allowing Home to remain visible behind the panel rather than
+exposing a separate black wallpaper task. The native Settings process also needed
+one force-stop/reopen to clear stale blank rendering. No Settings data was cleared.
+
+A diagnostic system-wallpaper synchronization attempt set the current mountain
+photo as the Android system wallpaper (wallpaper id changed from 2 to 3), but the
+firmware's ImageWallpaper renderer reported EGL/texture errors. The final app does
+not synchronize system wallpaper and does not request SET_WALLPAPER; it keeps Home
+beneath Settings instead. The test wallpaper remains assigned at system level.
+
+The prior APK, before/after dock and Settings screenshots, and repeated navigation
+checks are saved in `backup/xiaomi-glass-settings-fix-20261105/`.
+
+The dock's brighter fill was subsequently removed to match the user's preferred
+Control Center appearance. Both now share 110/255 backdrop opacity, the same
+light/dark tint values, inner highlight, refraction and rim styling. The dock still
+samples undimmed wallpaper so it does not revert to the old dark-scrim artifact.
+The prior APK and comparison screenshots are in `backup/xiaomi-matched-glass-20261105/`.
+
+The dock rim accents were then softened by reducing their opacity by roughly 60%
+in both appearance modes. The transparent fill, refraction, and Control Center
+styling remain as above. Backup: `backup/xiaomi-soft-dock-rim-20261105/`.
+
+## Control Center edge lens — November 5, 2026
+
+Control Center now captures a second, sharper half-resolution backdrop when opened.
+Its rounded edges blend in that sharper sample with stronger curved displacement
+(up to 13dp within a 16dp edge band), making the lens bend details from behind the
+container. The center keeps its prior 110/255 transparency; only the refractive
+perimeter strengthens its sampled layer. Surrounding Home blur, tint, focus
+highlight, and dock styling are unchanged. Both snapshots are released when the
+panel closes. This remains a snapshot effect rather than continuous live sampling.
+Previous APK and dark/light screenshots: `backup/xiaomi-control-lens-20261105/`.

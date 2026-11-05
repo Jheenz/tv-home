@@ -14,10 +14,12 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.ColorFilter;
+import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
 import android.graphics.RectF;
+import android.graphics.Shader;
 import android.graphics.Outline;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
@@ -110,6 +112,8 @@ public class MainActivity extends Activity {
     private ImageView wallBack, wallFront;
     private View gridShade, wallpaperScrim;
     private Bitmap frostedWallpaper, controlBackdrop;
+    private Bitmap controlRefraction;
+    private int[] controlRefractionPixels;
     private String[] wallpapers = new String[0];
     private int wallIndex = -1;
     private long wallChangedAt;
@@ -838,17 +842,8 @@ public class MainActivity extends Activity {
 
     /** Blur small snapshots rather than continuously filtering the full TV framebuffer. */
     private Bitmap blurredSnapshot(boolean wallpaperOnly) {
-        int width = rootFrame.getWidth(), height = rootFrame.getHeight();
-        if (width == 0 || height == 0) return null;
-        Bitmap bitmap = Bitmap.createBitmap(Math.max(1, width / 4), Math.max(1, height / 4), Bitmap.Config.ARGB_8888);
-        Canvas canvas = new Canvas(bitmap);
-        canvas.scale(bitmap.getWidth() / (float) width, bitmap.getHeight() / (float) height);
-        if (wallpaperOnly) {
-            canvas.drawColor(Color.BLACK);
-            wallBack.draw(canvas);
-            wallFront.draw(canvas);
-            wallpaperScrim.draw(canvas);
-        } else rootFrame.draw(canvas);
+        Bitmap bitmap = captureBackdrop(wallpaperOnly, 4);
+        if (bitmap == null) return null;
         int w = bitmap.getWidth(), h = bitmap.getHeight();
         int[] pixels = new int[w * h], temp = new int[w * h];
         bitmap.getPixels(pixels, 0, w, 0, 0, w, h);
@@ -856,6 +851,21 @@ public class MainActivity extends Activity {
         blurAxis(pixels, temp, w, h, true);
         blurAxis(temp, pixels, w, h, false);
         bitmap.setPixels(pixels, 0, w, 0, 0, w, h);
+        return bitmap;
+    }
+
+    private Bitmap captureBackdrop(boolean wallpaperOnly, int divisor) {
+        int width = rootFrame.getWidth(), height = rootFrame.getHeight();
+        if (width == 0 || height == 0) return null;
+        Bitmap bitmap = Bitmap.createBitmap(Math.max(1, width / divisor), Math.max(1, height / divisor), Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(bitmap);
+        canvas.scale(bitmap.getWidth() / (float) width, bitmap.getHeight() / (float) height);
+        if (wallpaperOnly) {
+            canvas.drawColor(Color.BLACK);
+            wallBack.draw(canvas);
+            wallFront.draw(canvas);
+            // Glass samples the photo itself, not the dark readability scrim.
+        } else rootFrame.draw(canvas);
         return bitmap;
     }
 
@@ -886,7 +896,7 @@ public class MainActivity extends Activity {
         if (dockRow != null) dockRow.invalidate();
     }
 
-    /** Draw the correctly aligned blurred backdrop, tint, highlight and fine glass edge. */
+    /** Transparent glass with a cached background lens and a directional specular rim. */
     private final class FrostedGlass extends Drawable {
         private final View owner;
         private final float radius;
@@ -894,6 +904,8 @@ public class MainActivity extends Activity {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
         private final Path clip = new Path();
         private final int[] location = new int[2], rootLocation = new int[2];
+        private Bitmap lens, lensSource;
+        private int lensX, lensY, lensWidth, lensHeight;
         private boolean focused;
 
         FrostedGlass(View owner, float radius, boolean panel) {
@@ -903,7 +915,8 @@ public class MainActivity extends Activity {
         void setFocused(boolean value) { focused = value; invalidateSelf(); }
 
         @Override public void draw(Canvas canvas) {
-            paint.setAlpha(110);
+            // Control Center's lens patch carries its own clear-center/strong-edge alpha.
+            paint.setAlpha(panel ? 255 : 110);
             RectF area = new RectF(getBounds());
             clip.reset(); clip.addRoundRect(area, radius, radius, Path.Direction.CW);
             int save = canvas.save(); canvas.clipPath(clip);
@@ -911,21 +924,101 @@ public class MainActivity extends Activity {
             if (source != null) {
                 owner.getLocationInWindow(location); rootFrame.getLocationInWindow(rootLocation);
                 float x = location[0] - rootLocation[0], y = location[1] - rootLocation[1];
-                canvas.drawBitmap(source, null, new RectF(-x, -y, rootFrame.getWidth() - x,
-                        rootFrame.getHeight() - y), paint);
+                updateLens(source, Math.round(x), Math.round(y), getBounds().width(), getBounds().height());
+                canvas.drawBitmap(lens, null, area, paint);
             }
             int[] colors = focused ? new int[]{0xFFF6FCFF, 0xEEF1FAFF}
                     : lightMode ? new int[]{0x80FFFFFF, 0x50E9F0F8, 0x66DDE7F1}
                     : new int[]{0x26435369, 0x18212B3B, 0x30101925};
             GradientDrawable tint = new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM, colors);
             tint.setBounds(getBounds()); tint.draw(canvas);
+            // A low-opacity inner reflection keeps the center clear.
+            if (!focused) {
+                paint.setAlpha(255);
+                paint.setShader(new LinearGradient(0, area.top, 0,
+                        area.top + Math.min(dp(24), area.height() * 0.45f),
+                        new int[]{0x18FFFFFF, 0x00FFFFFF}, null, Shader.TileMode.CLAMP));
+                canvas.drawRect(area, paint);
+                paint.setShader(null);
+            }
             canvas.restoreToCount(save);
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(dp(1));
-            paint.setColor(focused ? 0xEEFFFFFF : lightMode ? 0xCCFFFFFF : 0x669DB4CF);
+            paint.setColor(Color.WHITE);
+            paint.setShader(new LinearGradient(area.left, area.top, area.right, area.bottom,
+                    focused ? new int[]{0xEEFFFFFF, 0xAAFFFFFF}
+                            : !panel ? (lightMode
+                                    ? new int[]{0x60FFFFFF, 0x20FFFFFF, 0x38D6EBFF, 0x50FFFFFF}
+                                    : new int[]{0x50EFFFFF, 0x10DAEBFF, 0x2889B6D7, 0x40E8F7FF})
+                            : lightMode ? new int[]{0xDDFFFFFF, 0x50FFFFFF, 0x99D6EBFF, 0xCCFFFFFF}
+                            : new int[]{0xBBEFFFFF, 0x28DAEBFF, 0x6589B6D7, 0xAAE8F7FF},
+                    null, Shader.TileMode.CLAMP));
             area.inset(dp(0.5f), dp(0.5f));
             canvas.drawRoundRect(area, radius, radius, paint);
+            paint.setShader(null);
             paint.setStyle(Paint.Style.FILL);
+        }
+
+        /** Sample the actual local backdrop with a curved displacement near the glass edge. */
+        private void updateLens(Bitmap source, int x, int y, int width, int height) {
+            if (source == lensSource && x == lensX && y == lensY
+                    && width == lensWidth && height == lensHeight) return;
+            int sw = source.getWidth(), sh = source.getHeight();
+            int divisor = panel ? 2 : 3;
+            int w = Math.max(1, width / divisor), h = Math.max(1, height / divisor);
+            int[] input = new int[sw * sh], output = new int[w * h];
+            source.getPixels(input, 0, sw, 0, 0, sw, sh);
+            float halfW = width / 2f, halfH = height / 2f;
+            float corner = Math.min(radius, Math.min(halfW, halfH));
+            float edgeWidth = Math.min(dp(panel ? 16 : 12), Math.min(halfW, halfH));
+            float scaleX = sw / (float) rootFrame.getWidth(), scaleY = sh / (float) rootFrame.getHeight();
+            for (int py = 0; py < h; py++) for (int px = 0; px < w; px++) {
+                float localX = (px + 0.5f) * width / w, localY = (py + 0.5f) * height / h;
+                float dx = localX - halfW, dy = localY - halfH;
+                float qx = Math.abs(dx) - (halfW - corner), qy = Math.abs(dy) - (halfH - corner);
+                float cx = Math.max(qx, 0), cy = Math.max(qy, 0);
+                float length = (float) Math.sqrt(cx * cx + cy * cy);
+                float depth = corner - length - Math.min(Math.max(qx, qy), 0);
+                float nx, ny;
+                if (length > 0.001f) {
+                    nx = Math.copySign(cx / length, dx); ny = Math.copySign(cy / length, dy);
+                } else if (halfW - Math.abs(dx) < halfH - Math.abs(dy)) {
+                    nx = Math.signum(dx); ny = 0;
+                } else { nx = 0; ny = Math.signum(dy); }
+                float edge = Math.max(0, 1 - Math.max(0, depth) / edgeWidth);
+                float bend = dp(panel ? 13 : 7) * edge * edge;
+                // Mild central magnification flows into a stronger curved perimeter lens.
+                float sampleX = (x + localX - dx * 0.015f + nx * bend) * scaleX - 0.5f;
+                float sampleY = (y + localY - dy * 0.015f + ny * bend) * scaleY - 0.5f;
+                int color = sampleBackdrop(input, sw, sh, sampleX, sampleY);
+                if (panel && controlRefraction != null && controlRefractionPixels != null) {
+                    int sharpW = controlRefraction.getWidth(), sharpH = controlRefraction.getHeight();
+                    float sharpX = (x + localX - dx * 0.015f + nx * bend) * sharpW / rootFrame.getWidth() - 0.5f;
+                    float sharpY = (y + localY - dy * 0.015f + ny * bend) * sharpH / rootFrame.getHeight() - 0.5f;
+                    int refracted = sampleBackdrop(controlRefractionPixels, sharpW, sharpH, sharpX, sharpY);
+                    float mix = edge * 0.9f;
+                    color = Color.argb(Math.round(110 + edge * 85),
+                            Math.round(Color.red(color) * (1 - mix) + Color.red(refracted) * mix),
+                            Math.round(Color.green(color) * (1 - mix) + Color.green(refracted) * mix),
+                            Math.round(Color.blue(color) * (1 - mix) + Color.blue(refracted) * mix));
+                }
+                output[py * w + px] = color;
+            }
+            lens = Bitmap.createBitmap(output, w, h, Bitmap.Config.ARGB_8888);
+            lensSource = source; lensX = x; lensY = y; lensWidth = width; lensHeight = height;
+        }
+
+        private int sampleBackdrop(int[] pixels, int width, int height, float x, float y) {
+            x = Math.max(0, Math.min(width - 1, x)); y = Math.max(0, Math.min(height - 1, y));
+            int x0 = (int) x, y0 = (int) y;
+            int x1 = Math.min(width - 1, x0 + 1), y1 = Math.min(height - 1, y0 + 1);
+            float fx = x - x0, fy = y - y0;
+            int a = pixels[y0 * width + x0], b = pixels[y0 * width + x1];
+            int c = pixels[y1 * width + x0], d = pixels[y1 * width + x1];
+            float wa = (1 - fx) * (1 - fy), wb = fx * (1 - fy), wc = (1 - fx) * fy, wd = fx * fy;
+            return Color.rgb(Math.round(Color.red(a) * wa + Color.red(b) * wb + Color.red(c) * wc + Color.red(d) * wd),
+                    Math.round(Color.green(a) * wa + Color.green(b) * wb + Color.green(c) * wc + Color.green(d) * wd),
+                    Math.round(Color.blue(a) * wa + Color.blue(b) * wb + Color.blue(c) * wc + Color.blue(d) * wd));
         }
 
         @Override public void setAlpha(int alpha) { }
@@ -944,6 +1037,13 @@ public class MainActivity extends Activity {
         View previous = getCurrentFocus();
         panelReturnFocusId = previous == null ? controlButton.getId() : previous.getId();
         controlButton.setVisibility(View.INVISIBLE);
+        // Keep detail at the curved rim while the surrounding Home remains softly blurred.
+        controlRefraction = captureBackdrop(false, 2);
+        if (controlRefraction != null) {
+            int w = controlRefraction.getWidth(), h = controlRefraction.getHeight();
+            controlRefractionPixels = new int[w * h];
+            controlRefraction.getPixels(controlRefractionPixels, 0, w, 0, 0, w, h);
+        }
         controlBackdrop = blurredSnapshot(false);
         controlOverlay = new FrameLayout(this);
         if (controlBackdrop != null) {
@@ -1147,8 +1247,17 @@ public class MainActivity extends Activity {
         // Specific settings must open their activity, even if another settings
         // page is currently above it in the existing system Settings task.
         if (!Settings.ACTION_SETTINGS.equals(intent.getAction())) intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
-        if (intent.resolveActivity(getPackageManager()) == null || !launch(intent)) {
-            launch(new Intent(Settings.ACTION_SETTINGS));
+        if (intent.resolveActivity(getPackageManager()) == null) intent = new Intent(Settings.ACTION_SETTINGS);
+        launchSettingsWithBackdrop(intent);
+    }
+
+    private void launchSettingsWithBackdrop(Intent intent) {
+        // Native TV Settings is translucent. Keep it in our task so Home remains
+        // behind its panel, instead of exposing the TV's blank wallpaper task.
+        intent.removeFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        try { startActivity(intent); }
+        catch (RuntimeException e) {
+            Toast.makeText(this, "Settings could not be opened", Toast.LENGTH_SHORT).show();
         }
     }
 
@@ -1157,6 +1266,8 @@ public class MainActivity extends Activity {
         rootFrame.removeView(controlOverlay);
         controlOverlay = null;
         controlBackdrop = null;
+        controlRefraction = null;
+        controlRefractionPixels = null;
         controlButton.setVisibility(View.VISIBLE);
         wifiStatus = null;
         panelClock = null;
