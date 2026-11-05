@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="standby_label">Home standby control</string>
+    <string name="standby_description">Allows the Home launcher’s Standby button to turn off the screen. Does not read screen content or receive accessibility events.</string>
+</resources>
