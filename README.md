@@ -70,7 +70,10 @@ Install the optional Python ADB client with `./setup.sh --no-launcher` if needed
   AirPlay, launcher light/dark appearance and display settings. D-pad Up reaches it.
   Standby uses the optional Home standby accessibility service, which requests no
   screen content or events. AirPlay opens an available receiver app; it does not add
-  AirPlay support to devices without a receiver. Unsupported settings shortcuts fall
+  AirPlay support to devices without a receiver. The AirPlay shortcut detects native
+  TCL/Realtek AirPlay settings even without an app-grid entry, then falls back to installed
+  receiver apps (including AirScreen and AirReceiver). Other built-in receivers need an
+  accessible launcher entry or a supported settings action. Unsupported settings shortcuts fall
   back to system Settings.
   The open panel softly blurs the Home screen; its tiles and the dock use cached,
   blurred backdrops with translucent shading and fine glass borders.

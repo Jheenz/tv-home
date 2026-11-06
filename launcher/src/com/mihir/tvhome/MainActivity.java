@@ -1215,6 +1215,16 @@ public class MainActivity extends Activity {
 
     private void openAirPlay() {
         PackageManager pm = getPackageManager();
+        // TCL/Realtek firmware exposes AirPlay settings without a launcher icon.
+        // Detect the exported action rather than assuming every TV has this receiver.
+        Intent nativeSettings = new Intent("com.realtek.media.airplay2.LAUNCH_SETTINGS")
+                .addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        for (ResolveInfo info : pm.queryIntentActivities(nativeSettings, PackageManager.MATCH_DEFAULT_ONLY)) {
+            if (info.activityInfo.exported
+                    && (info.activityInfo.applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0
+                    && launch(new Intent(nativeSettings).setComponent(new ComponentName(
+                            info.activityInfo.packageName, info.activityInfo.name)))) return;
+        }
         List<ResolveInfo> receivers = new ArrayList<>();
         for (String category : new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER})
             receivers.addAll(pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(category), 0));
@@ -1223,9 +1233,10 @@ public class MainActivity extends Activity {
                 (b.activityInfo.applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0,
                 (a.activityInfo.applicationInfo.flags & android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0));
         for (ResolveInfo info : receivers) {
-            String label = info.loadLabel(pm).toString().toLowerCase(Locale.ROOT);
+            String label = info.loadLabel(pm).toString().toLowerCase(Locale.ROOT).replace(" ", "");
             String pkg = info.activityInfo.packageName;
             if (label.contains("airplay") || label.contains("airscreen") || label.contains("airreceiver")
+                    || pkg.contains("airplay") || pkg.equals("com.ionitech.airscreen")
                     || pkg.equals("io.github.jqssun.airplay") || pkg.equals("com.softmedia.receiver")
                     || pkg.equals("com.waxrain.airplaydmr")) {
                 Intent intent = new Intent(Intent.ACTION_MAIN).setComponent(new ComponentName(
@@ -1233,7 +1244,8 @@ public class MainActivity extends Activity {
                 if (launch(intent)) return;
             }
         }
-        Toast.makeText(this, "No AirPlay receiver app is installed", Toast.LENGTH_LONG).show();
+        Toast.makeText(this, "No accessible AirPlay receiver found. Check your TV's AirPlay settings or install a receiver app.",
+                Toast.LENGTH_LONG).show();
     }
 
     private void openControlSettings(String action) {
